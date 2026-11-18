@@ -2,6 +2,7 @@ library(shiny)
 library(bslib)
 library(ggplot2)
 library(DT)
+library(colourpicker)
 
 source(file.path("R", "analysis.R"), local = TRUE)
 survey <- load_survey()
@@ -82,8 +83,27 @@ ui <- page_navbar(
     tags$hr(),
     tags$details(class = "appearance", open = NA,
       tags$summary("Plot appearance"),
-      select_control("palette", "Colour palette", choices = c("Blue & orange (colour-blind friendly)" = "accessible",
-                    "Teal & berry" = "teal", "Greyscale" = "monochrome")),
+      tags$p(class = "control-note", "Click a colour field to choose a shade, or type a colour name or hex code."),
+      conditionalPanel("input.main_nav == 'Explore' && input.view == 'relationship'",
+        checkboxInput("scatter_multicolour", "Use a different colour for each student status?", FALSE),
+        conditionalPanel("!input.scatter_multicolour",
+          colourInput("scatter_colour", "Input the point colour.", value = "#5B10A7", width = "100%")),
+        conditionalPanel("input.scatter_multicolour",
+          select_control("scatter_palette", "Colour palette (one colour per group):", choices = palette_choices))),
+      conditionalPanel("input.main_nav == 'Explore' && input.view == 'groups'",
+        checkboxInput("group_multicolour", "Use a different colour for each group?", FALSE),
+        conditionalPanel("!input.group_multicolour",
+          colourInput("group_colour", "Input the box colour.", value = "#FF6666", width = "100%")),
+        conditionalPanel("input.group_multicolour",
+          select_control("group_palette", "Colour palette (one colour per group):", choices = palette_choices))),
+      conditionalPanel("input.main_nav == 'Explore' && input.view == 'distribution'",
+        checkboxInput("dist_multicolour", "Use a different colour for each bar?", FALSE),
+        conditionalPanel("!input.dist_multicolour",
+          colourInput("dist_colour", "Input the bar colour.", value = "#6699FF", width = "100%")),
+        conditionalPanel("input.dist_multicolour",
+          select_control("dist_palette", "Colour palette (one colour per bar):", choices = palette_choices))),
+      conditionalPanel("input.main_nav == 'Analysis'",
+        colourInput("analysis_colour", "Input the analysis plot colour.", value = "#5B10A7", width = "100%")),
       sliderInput("point_size", "Point size", min = 1.5, max = 4.5, value = 2.8, step = .1)),
     tags$div(class = "sidebar-foot", tags$strong("STA304H5 · Fall 2026"),
              tags$p("Group 18 · University of Toronto Mississauga"))
@@ -198,7 +218,17 @@ server <- function(input, output, session) {
   filtered <- reactive({
     filter_survey(survey, input$status_filter %||% character(), input$study_filter %||% study_limits)
   })
-  current_palette <- reactive(palettes[[input$palette %||% "accessible"]])
+  scatter_colours <- reactive({
+    values <- if (isTRUE(input$scatter_multicolour)) palette_colours(input$scatter_palette %||% "rainbow", 2) else
+      rep(plot_colour(input$scatter_colour, "#5B10A7"), 2)
+    stats::setNames(values, c("Domestic", "International"))
+  })
+  comparison_colours <- reactive({
+    values <- if (isTRUE(input$group_multicolour)) palette_colours(input$group_palette %||% "rainbow", 2) else
+      rep(plot_colour(input$group_colour, "#FF6666"), 2)
+    stats::setNames(values, c("Domestic", "International"))
+  })
+  analysis_colour <- reactive(plot_colour(input$analysis_colour, "#5B10A7"))
   correlation <- reactive(pearson_result(filtered(), input$x_variable %||% "total_social_hours"))
   model_result <- reactive(fit_survey_model(filtered(), input$model_type %||% "eda"))
   model_coefficients <- reactive(coefficient_table(model_result()))
@@ -254,7 +284,7 @@ server <- function(input, output, session) {
     v <- input$x_variable %||% "total_social_hours"
     p <- ggplot(d, aes(x = .data[[v]], y = cgpa)) +
       geom_point(aes(colour = status, shape = status), size = input$point_size %||% 2.8, alpha = .8) +
-      scale_colour_manual(values = current_palette(), drop = FALSE) +
+      scale_colour_manual(values = scatter_colours(), drop = FALSE) +
       scale_shape_manual(values = c(Domestic = 16, International = 17), drop = FALSE) +
       labs(title = plot_label(paste("cGPA and", short_labels[v])), x = plot_label(unname(variable_labels[v])), y = "Self-reported cGPA (0-4)") +
       chart_theme() +
@@ -297,7 +327,7 @@ server <- function(input, output, session) {
     if (isTRUE(input$show_points)) p <- p + geom_point(aes(shape = status),
       position = position_jitter(width = .11, height = 0, seed = 304), alpha = .65, size = input$point_size %||% 2.8)
     counts <- table(d$status)
-    p + scale_colour_manual(values = current_palette()) + scale_fill_manual(values = current_palette()) +
+    p + scale_colour_manual(values = comparison_colours()) + scale_fill_manual(values = comparison_colours()) +
       scale_shape_manual(values = c(Domestic = 16, International = 17)) +
       scale_x_discrete(labels = function(x) paste0(x, "\n(n = ", counts[x], ")"), drop = TRUE) +
       labs(title = plot_label(paste(unname(variable_labels[v]), "by student status")), x = NULL, y = plot_label(unname(variable_labels[v]))) +
@@ -330,9 +360,16 @@ server <- function(input, output, session) {
     v <- input$dist_variable %||% "total_social_hours"
     r <- range(survey[[v]])
     breaks <- if (v == "satisfaction") seq(.5, 10.5, 1) else seq(r[1] - .001, r[2] + .001, length.out = (input$bins %||% 10) + 1)
-    ggplot(d, aes(x = .data[[v]], fill = status)) +
-      geom_histogram(breaks = breaks, colour = "white", linewidth = .35, position = "stack") +
-      scale_fill_manual(values = current_palette(), drop = FALSE) +
+    p <- ggplot(d, aes(x = .data[[v]]))
+    if (isTRUE(input$dist_multicolour)) {
+      p <- p + geom_histogram(aes(fill = after_stat(factor(x))), breaks = breaks,
+                              colour = "white", linewidth = .35) +
+        scale_fill_manual(values = palette_colours(input$dist_palette %||% "rainbow", length(breaks) - 1), guide = "none")
+    } else {
+      p <- p + geom_histogram(breaks = breaks, fill = plot_colour(input$dist_colour, "#6699FF"),
+                              colour = "white", linewidth = .35)
+    }
+    p +
       scale_y_continuous(breaks = function(x) unique(round(pretty(x, n = 5))), expand = expansion(mult = c(0, .08))) +
       labs(title = plot_label(paste("Distribution of", short_labels[v])), x = plot_label(unname(variable_labels[v])), y = "Number of responses") +
       coord_cartesian(xlim = safe_zoom(input$dist_zoom, axis_range(survey, v))) + chart_theme()
@@ -402,8 +439,8 @@ server <- function(input, output, session) {
     d$label <- factor(d$label, levels = rev(d$label))
     ggplot(d, aes(x = estimate, y = label)) +
       geom_vline(xintercept = 0, linetype = "dashed", colour = "#7D8A95") +
-      geom_segment(aes(x = lower, xend = upper, yend = label), colour = current_palette()[1], linewidth = 1) +
-      geom_point(colour = current_palette()[1], size = input$point_size %||% 2.8) +
+      geom_segment(aes(x = lower, xend = upper, yend = label), colour = analysis_colour(), linewidth = 1) +
+      geom_point(colour = analysis_colour(), size = input$point_size %||% 2.8) +
       labs(title = "Adjusted associations\nand 95% confidence intervals", x = "Estimated difference in cGPA", y = NULL) + chart_theme()
   })
   output$coefficient_plot <- renderPlot({
@@ -417,7 +454,7 @@ server <- function(input, output, session) {
     req(m$available)
     d <- data.frame(fitted = fitted(m$fit), residual = residuals(m$fit),
                     standardized = rstandard(m$fit))
-    colour <- unname(current_palette()[1])
+    colour <- analysis_colour()
     diagnostic <- input$diagnostic %||% "residuals"
     if (diagnostic == "qq") {
       return(ggplot(d, aes(sample = standardized)) + stat_qq(colour = colour, size = 2.1) +

@@ -17,11 +17,15 @@ short_labels <- c(
 )
 variable_choices <- stats::setNames(names(variable_labels), variable_labels)
 predictor_choices <- variable_choices[variable_choices != "cgpa"]
-palettes <- list(
-  accessible = c(Domestic = "#0072B2", International = "#D55E00"),
-  teal = c(Domestic = "#087E8B", International = "#A63A70"),
-  monochrome = c(Domestic = "#293B4B", International = "#858F99")
-)
+palette_choices <- c("Rainbow" = "rainbow", "Heat" = "heat", "Terrain" = "terrain", "Topo" = "topo")
+palette_colours <- function(palette = "rainbow", n = 2L) {
+  switch(palette, heat = grDevices::heat.colors(n), terrain = grDevices::terrain.colors(n),
+         topo = grDevices::topo.colors(n), grDevices::rainbow(n))
+}
+plot_colour <- function(value, fallback) {
+  if (length(value) != 1 || is.na(value) || !nzchar(value)) return(fallback)
+  tryCatch({ grDevices::col2rgb(value); value }, error = function(e) fallback)
+}
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
 load_survey <- function(path = file.path("data", "survey_clean.csv")) {
