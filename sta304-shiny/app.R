@@ -182,7 +182,11 @@ ui <- page_navbar(
         tags$h2("Model coefficients"),
         tags$div(class = "result-grid",
           tags$div(class = "table-scroll", tableOutput("regression_table")),
-          tags$div(class = "plot-panel", plotOutput("coefficient_plot", height = "345px"))),
+          tags$figure(class = "coefficient-figure",
+            tags$figcaption(
+              tags$h3("Adjusted cGPA estimates"),
+              tags$p(class = "section-description", "Dots mark estimates. Lines show 95% confidence intervals.")),
+            plotOutput("coefficient_plot", height = "365px"))),
         tags$p(class = "plot-note", "Each coefficient estimates a cGPA difference while holding the other predictors fixed. Domestic is the reference group when both statuses are selected. Confidence intervals and p-values use conventional OLS t inference."),
         tags$p(class = "plot-note", "The intercept is the fitted cGPA at the reference status and zero for every numeric predictor. Zero study time lies outside the observed range.")),
       tags$section(class = "chart-card",
@@ -221,9 +225,7 @@ ui <- page_navbar(
         tags$p("The sample is small and voluntary. GPA, time use, and satisfaction are self-reported, with possible rounding and recall error. Group sizes differ, other relevant factors were not measured, and the study is observational. Filters describe the selected responses and can make estimates less stable.")),
       tags$section(class = "about-block", tags$h2("How to use this app"),
         tags$p("Set student status and study time with the sample filters above the charts. In Explore, choose Association, Group comparison, Distributions, or Responses. Open Plot styling to change colours and use Axis limits to zoom."),
-        tags$p("Regression uses the same sample filters. Table search affects only the table, and axis limits affect only the visible plot area.")),
-      tags$section(class = "about-block source-note", tags$h2("Sources"),
-        tags$p("Data: Group 18's survey workbook. Study context and initial analysis: STA304 Exploratory Data Analysis, Group 18, October 25, 2026. App requirements: STA304 Shiny Website Instructions, 2026."))
+        tags$p("Regression uses the same sample filters. Table search affects only the table, and axis limits affect only the visible plot area."))
     )
   ),
   footer = tags$footer(class = "site-shell site-footer",
@@ -455,7 +457,14 @@ server <- function(input, output, session) {
       geom_vline(xintercept = 0, linetype = "dashed", colour = "#7D8A95") +
       geom_segment(aes(x = lower, xend = upper, yend = label), colour = analysis_colour(), linewidth = 1) +
       geom_point(colour = analysis_colour(), size = input$point_size %||% 2.8) +
-      labs(title = "Adjusted associations\nand 95% confidence intervals", x = "Estimated difference in cGPA", y = NULL) + chart_theme()
+      scale_y_discrete(labels = function(labels) vapply(labels, plot_label, character(1), width = 18)) +
+      scale_x_continuous(n.breaks = 3) +
+      labs(x = "cGPA difference", y = NULL) +
+      chart_theme() +
+      theme(axis.text.y = element_text(size = 10, lineheight = .95),
+            axis.text.x = element_text(size = 10),
+            axis.title.x = element_text(size = 11),
+            plot.margin = margin(8, 10, 8, 6))
   })
   output$coefficient_plot <- renderPlot({
     m <- model_result()

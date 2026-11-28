@@ -422,10 +422,13 @@ summary:focus-visible {
 .response-panel { margin-top: 0; }
 .result-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  align-items: center;
-  gap: .7rem 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 29rem), 1fr));
+  align-items: start;
+  gap: .95rem 1.2rem;
 }
+.coefficient-figure { min-width: 0; margin: 0; }
+.coefficient-figure figcaption { margin: 0 .35rem .2rem; }
+.coefficient-figure figcaption h3 { margin-bottom: .25rem; }
 
 .assumption-notes h4 { font-size: 1rem; font-weight: 650; }
 .assumption-notes { padding: .65rem 0; color: var(--muted); }
@@ -437,7 +440,6 @@ summary:focus-visible {
 .definitions { margin-top: .8rem; }
 .definitions dt { font-size: .94rem; }
 .definitions dd { margin-bottom: .6rem; }
-.source-note { grid-column: 1 / -1; }
 
 .site-footer {
   display: flex;
@@ -459,7 +461,6 @@ summary:focus-visible {
   .survey-hero { gap: 1.4rem; }
   .sample-filters { grid-template-columns: 1fr 1fr; align-items: start; }
   .sample-filters .btn { align-self: end; }
-  .result-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 41rem) {
