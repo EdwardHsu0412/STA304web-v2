@@ -1,8 +1,20 @@
-// Start each top-level page at its heading while retaining the selected filters.
+// Let visitors dismiss plot styling without losing their chart settings.
 document.addEventListener("DOMContentLoaded", function () {
-  if (!window.jQuery) return;
-  window.jQuery(document).on("shown.bs.tab", '#main_nav a[data-bs-toggle="tab"]', function () {
-    document.querySelectorAll(".bslib-sidebar-layout > .main, .bslib-sidebar-layout > .sidebar")
-      .forEach(function (panel) { panel.scrollTop = 0; });
+  const styling = document.querySelector(".plot-styling");
+  if (!styling) return;
+
+  document.addEventListener("click", function (event) {
+    if (styling.open && !styling.contains(event.target)) styling.open = false;
+  });
+
+  styling.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && styling.open) {
+      styling.open = false;
+      styling.querySelector("summary").focus();
+    }
+  });
+
+  document.getElementById("view").addEventListener("change", function () {
+    styling.open = false;
   });
 });

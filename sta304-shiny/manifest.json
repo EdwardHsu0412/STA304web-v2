@@ -1589,7 +1589,7 @@
   },
   "files": {
     "app.R": {
-      "checksum": "2da6a22e410cab0cd4f05fcdf2c02fbe"
+      "checksum": "8f3b99d602e57d0315c8d2b34d6c396d"
     },
     "data/data_dictionary.csv": {
       "checksum": "cfd6fbf30525ec6ff86423f1a976d004"
@@ -1601,10 +1601,10 @@
       "checksum": "48b7b19c7adace2b0c502402c783bab3"
     },
     "www/navigation.js": {
-      "checksum": "61139e0bb048d0f3c0b8cda012a003a8"
+      "checksum": "bca426f73323116a4052faa2f062bf46"
     },
     "www/style.css": {
-      "checksum": "c463b422e86975d7b58969f29fcf9e22"
+      "checksum": "9429851eb57e985795305041b098e124"
     }
   },
   "users": null

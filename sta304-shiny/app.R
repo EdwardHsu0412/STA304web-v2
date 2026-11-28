@@ -9,15 +9,17 @@ survey <- load_survey()
 study_limits <- range(survey$study_hours)
 select_control <- function(...) shiny::selectInput(..., selectize = FALSE)
 plot_label <- function(text, width = 36) paste(strwrap(text, width = width), collapse = "\n")
+default_colours <- list(points = "#14735D", groups = "#4C638F", bars = "#AA5039", analysis = "#14735D")
 
 metric <- function(label, value, detail = NULL) {
   tags$div(class = "metric", tags$div(class = "metric-label", label),
            tags$div(class = "metric-value", value),
            tags$div(class = "metric-detail", detail))
 }
-section_heading <- function(kicker, title, description = NULL) {
-  tags$div(class = "section-heading", tags$p(class = "eyebrow", kicker),
-           tags$h2(title), tags$p(class = "section-description", description))
+chart_header <- function(title, description, ...) {
+  tags$header(class = "chart-header",
+    tags$div(tags$h2(title), tags$p(class = "section-description", description)),
+    tags$div(class = "chart-inputs", ...))
 }
 reading_box <- function(title, ...) {
   tags$div(class = "reading-box", tags$h3(title), ...)
@@ -25,193 +27,210 @@ reading_box <- function(title, ...) {
 chart_theme <- function() {
   theme_minimal(base_size = 13, base_family = "sans") +
     theme(panel.grid.minor = element_blank(),
-          panel.grid.major = element_line(colour = "#E7ECF0", linewidth = .35),
-          plot.title = element_text(face = "bold", size = 15, colour = "#263D4F", margin = margin(b = 14)),
-          axis.title = element_text(colour = "#354B5D"),
-          axis.text = element_text(colour = "#465B6B"),
+          panel.grid.major = element_line(colour = "#E2E8E1", linewidth = .35),
+          plot.title = element_text(face = "bold", size = 15, colour = "#18382E", margin = margin(b = 12)),
+          axis.title = element_text(colour = "#2D463D"),
+          axis.text = element_text(colour = "#4D6158"),
           legend.position = "top", legend.title = element_blank(),
-          plot.margin = margin(15, 20, 12, 12))
+          plot.margin = margin(12, 16, 12, 12))
 }
 
 ui <- page_navbar(
-  title = tags$span(class = "brand", "Social Media & cGPA"),
+  title = tags$span(class = "brand", "Study & Scroll"),
   id = "main_nav", selected = "Explore",
-  window_title = "STA304 Group 18 | Social Media & cGPA",
+  window_title = "STA304 Group 18 | Study & Scroll",
   lang = "en", fillable = FALSE,
-  theme = bs_theme(version = 5, bootswatch = "flatly", primary = "#087E8B",
-                   base_font = "Segoe UI, Arial, sans-serif", border_radius = ".6rem"),
-  navbar_options = navbar_options(bg = "#2C3E50", theme = "dark"),
-  header = tags$head(
-    tags$link(rel = "stylesheet", type = "text/css", href = "style.css"),
-    tags$script(src = "navigation.js"),
-    tags$meta(name = "description", content = "Explore Group 18's survey of social media use, study habits, and self-reported cGPA in STA304H5.")
-  ),
-  sidebar = sidebar(
-    title = "Explore the survey", width = 310, open = "desktop",
-    tags$p(class = "sidebar-intro", "Choose a view, then explore a group of students."),
-    conditionalPanel("input.main_nav == 'Explore'",
-      select_control("view", "What would you like to see?", choices = c(
-        "Social media & cGPA" = "relationship",
-        "Compare student groups" = "groups",
-        "Distribution of a variable" = "distribution",
-        "Survey responses & summaries" = "responses")),
-      conditionalPanel("input.view == 'relationship'",
-        select_control("x_variable", "Compare cGPA with", choices = predictor_choices,
-                    selected = "total_social_hours"),
-        checkboxInput("show_fit", "Show fitted line and 95% band", TRUE)),
-      conditionalPanel("input.view == 'groups'",
-        select_control("group_variable", "Which variable?", choices = variable_choices, selected = "cgpa"),
-        radioButtons("group_style", "Plot style", choices = c("Boxplot" = "box", "Violin" = "violin"), inline = TRUE),
-        checkboxInput("show_points", "Show individual responses", TRUE)),
-      conditionalPanel("input.view == 'distribution'",
-        select_control("dist_variable", "Which variable?", choices = variable_choices, selected = "total_social_hours"),
-        sliderInput("bins", "Number of histogram bins", min = 4, max = 25, value = 10, step = 1))
+  theme = bs_theme(version = 5, primary = "#205A47", bg = "#F7F7F0", fg = "#18382E",
+                   base_font = "system-ui, sans-serif", border_radius = ".5rem"),
+  navbar_options = navbar_options(bg = "#FCFDF8", theme = "light"),
+  header = tagList(
+    tags$head(
+      tags$link(rel = "stylesheet", type = "text/css", href = "style.css"),
+      tags$script(src = "navigation.js"),
+      tags$meta(name = "description", content = "Explore Group 18's survey of social media use, study habits, and self-reported cGPA in STA304H5.")
     ),
+    conditionalPanel("input.main_nav == 'Explore'",
+      tags$section(class = "site-shell survey-hero",
+        tags$div(class = "hero-copy",
+          tags$p(class = "byline", "STA304H5 · Group 18 · Fall 2026"),
+          tags$h1("Study time, screen time and cGPA"),
+          tags$p("Explore how online habits and study time relate to self-reported grades in our class survey.")),
+        tags$section(class = "snapshot", `aria-label` = "Sample snapshot",
+          tags$h2("Sample snapshot"), uiOutput("headline_metrics")))),
     conditionalPanel("input.main_nav == 'Analysis'",
-      select_control("model_type", "Regression model", choices = c(
-        "EDA: platform use, study, bedtime & status" = "eda",
-        "Status adjusted for total use & study" = "adjusted")),
-      tags$p(class = "control-note", "Both models predict cGPA. All estimates use the current filters.")),
-    tags$hr(),
-    tags$h3(class = "sidebar-section", "Filter the responses"),
-    checkboxGroupInput("status_filter", "Student registration status",
-                       choices = c("Domestic", "International"), selected = c("Domestic", "International")),
-    sliderInput("study_filter", "Daily study time (hours)", min = study_limits[1], max = study_limits[2],
-                value = study_limits, step = .5),
-    tags$p(class = "control-note", "Filters update every plot, statistic, model, and response table."),
-    actionButton("reset_filters", "Reset filters", class = "btn-outline-secondary w-100"),
-    tags$hr(),
-    tags$details(class = "appearance", open = NA,
-      tags$summary("Plot appearance"),
-      tags$p(class = "control-note", "Click a colour field to choose a shade, or type a colour name or hex code."),
-      conditionalPanel("input.main_nav == 'Explore' && input.view == 'relationship'",
-        checkboxInput("scatter_multicolour", "Use a different colour for each student status?", FALSE),
-        conditionalPanel("!input.scatter_multicolour",
-          colourInput("scatter_colour", "Input the point colour.", value = "#5B10A7", width = "100%")),
-        conditionalPanel("input.scatter_multicolour",
-          select_control("scatter_palette", "Colour palette (one colour per group):", choices = palette_choices))),
-      conditionalPanel("input.main_nav == 'Explore' && input.view == 'groups'",
-        checkboxInput("group_multicolour", "Use a different colour for each group?", FALSE),
-        conditionalPanel("!input.group_multicolour",
-          colourInput("group_colour", "Input the box colour.", value = "#FF6666", width = "100%")),
-        conditionalPanel("input.group_multicolour",
-          select_control("group_palette", "Colour palette (one colour per group):", choices = palette_choices))),
-      conditionalPanel("input.main_nav == 'Explore' && input.view == 'distribution'",
-        checkboxInput("dist_multicolour", "Use a different colour for each bar?", FALSE),
-        conditionalPanel("!input.dist_multicolour",
-          colourInput("dist_colour", "Input the bar colour.", value = "#6699FF", width = "100%")),
-        conditionalPanel("input.dist_multicolour",
-          select_control("dist_palette", "Colour palette (one colour per bar):", choices = palette_choices))),
-      conditionalPanel("input.main_nav == 'Analysis'",
-        colourInput("analysis_colour", "Input the analysis plot colour.", value = "#5B10A7", width = "100%")),
-      sliderInput("point_size", "Point size", min = 1.5, max = 4.5, value = 2.8, step = .1)),
-    tags$div(class = "sidebar-foot", tags$strong("STA304H5 · Fall 2026"),
-             tags$p("Group 18 · University of Toronto Mississauga"))
+      tags$header(class = "site-shell section-intro",
+        tags$h1("Regression results"),
+        tags$p("See how cGPA varies with social media use, study time, and student status after adjustment."))),
+    conditionalPanel("input.main_nav == 'About'",
+      tags$header(class = "site-shell section-intro",
+        tags$p(class = "byline", "STA304H5 · University of Toronto Mississauga"),
+        tags$h1("Study notes"),
+        tags$p("Group 18: Edward, Angela, Sasha, Ali, and Prativa"))),
+    conditionalPanel("input.main_nav == 'Explore' || input.main_nav == 'Analysis'",
+      tags$div(class = "site-shell",
+        tags$section(class = "sample-filters", `aria-label` = "Sample filters",
+          tags$div(class = "filter-heading", tags$h2("Sample filters"),
+            uiOutput("selection_summary", `aria-live` = "polite")),
+          checkboxGroupInput("status_filter", "Student status", inline = TRUE,
+                             choices = c("Domestic", "International"), selected = c("Domestic", "International")),
+          sliderInput("study_filter", "Daily study time (hours)", min = study_limits[1], max = study_limits[2],
+                      value = study_limits, step = .5, width = "100%"),
+          actionButton("reset_filters", "Reset filters", class = "btn-outline-primary")),
+        tags$div(class = "tool-dock",
+          conditionalPanel("input.main_nav == 'Explore'", class = "view-switch",
+            radioButtons("view", "Chart or data view", inline = TRUE, width = "auto", choices = c(
+              "Association" = "relationship",
+              "Group comparison" = "groups",
+              "Distributions" = "distribution",
+              "Responses" = "responses"))),
+          conditionalPanel("input.main_nav == 'Analysis'", class = "model-switch",
+            select_control("model_type", "Regression model", width = "100%", choices = c(
+              "EDA model: platform use, study, bedtime and status" = "eda",
+              "Status adjusted for total use and study" = "adjusted"))),
+          conditionalPanel("input.main_nav == 'Analysis' || input.view != 'responses'", class = "style-slot",
+            tags$details(class = "plot-styling",
+              tags$summary("Plot styling"),
+              tags$div(class = "plot-style-menu",
+                tags$p(class = "control-note", "Pick a shade or enter a colour name or hex code."),
+                conditionalPanel("input.main_nav == 'Explore' && input.view == 'relationship'",
+                  checkboxInput("scatter_multicolour", "Colour by student status", FALSE),
+                  conditionalPanel("!input.scatter_multicolour",
+                    colourInput("scatter_colour", "Point colour", value = default_colours$points, width = "100%")),
+                  conditionalPanel("input.scatter_multicolour",
+                    select_control("scatter_palette", "Palette", choices = palette_choices, width = "100%"))),
+                conditionalPanel("input.main_nav == 'Explore' && input.view == 'groups'",
+                  checkboxInput("group_multicolour", "Colour by student group", FALSE),
+                  conditionalPanel("!input.group_multicolour",
+                    colourInput("group_colour", "Group colour", value = default_colours$groups, width = "100%")),
+                  conditionalPanel("input.group_multicolour",
+                    select_control("group_palette", "Palette", choices = palette_choices, width = "100%"))),
+                conditionalPanel("input.main_nav == 'Explore' && input.view == 'distribution'",
+                  checkboxInput("dist_multicolour", "Give each bar its own colour", FALSE),
+                  conditionalPanel("!input.dist_multicolour",
+                    colourInput("dist_colour", "Bar colour", value = default_colours$bars, width = "100%")),
+                  conditionalPanel("input.dist_multicolour",
+                    select_control("dist_palette", "Palette", choices = palette_choices, width = "100%"))),
+                conditionalPanel("input.main_nav == 'Analysis'",
+                  colourInput("analysis_colour", "Plot colour", value = default_colours$analysis, width = "100%")),
+                conditionalPanel("input.main_nav == 'Analysis' || input.view == 'relationship' || input.view == 'groups'",
+                  sliderInput("point_size", "Point size", min = 1.5, max = 4.5, value = 2.8, step = .1, width = "100%"))
+              )
+            )
+          )
+        )
+      )
+    )
   ),
   nav_panel("Explore", value = "Explore",
-    tags$div(class = "page-content",
-      tags$div(class = "page-heading",
-        tags$p(class = "eyebrow", "STA304 STUDENT SURVEY · GROUP 18"),
-        tags$h1("Social media and academic performance"),
-        tags$p("Explore how online habits, study time, and student status relate to self-reported cGPA.")),
-      uiOutput("selection_summary"),
-      uiOutput("headline_metrics"),
+    tags$main(class = "site-shell page-content",
       conditionalPanel("input.view == 'relationship'",
-        section_heading("RESEARCH QUESTION 1", "Is daily social media use associated with cGPA?",
-                        "Select a measure in the sidebar. Each point represents one survey response."),
-        tags$div(class = "plot-panel", plotOutput("relationship_plot", height = "390px")),
-        tags$details(class = "axis-controls", tags$summary("Adjust axis limits"),
-          fluidRow(column(6, uiOutput("x_zoom_ui")),
-                   column(6, sliderInput("cgpa_zoom", "cGPA axis limits", min = 0, max = 4, value = c(0, 4), step = .1))),
-          tags$p(class = "control-note", "Axis limits zoom the plot only. Statistics still use all filtered responses.")),
+        tags$section(class = "chart-card",
+          chart_header("How do daily habits relate to cGPA?",
+                       "Each point represents one survey response. Identical answers may overlap.",
+            select_control("x_variable", "Compare cGPA with", choices = predictor_choices,
+                           selected = "total_social_hours", width = "100%"),
+            checkboxInput("show_fit", "Show trend line and 95% band", TRUE)),
+          tags$div(class = "plot-panel", plotOutput("relationship_plot", height = "370px")),
+          tags$details(class = "axis-controls", tags$summary("Axis limits"),
+            tags$div(class = "axis-grid",
+              uiOutput("x_zoom_ui"),
+              sliderInput("cgpa_zoom", "cGPA axis limits", min = 0, max = 4, value = c(0, 4), step = .1)),
+            tags$p(class = "control-note", "Axis limits zoom the plot. Statistics use all filtered responses."))),
         uiOutput("correlation_reading"),
-        tags$p(class = "plot-note", "The fitted line and shaded 95% band describe the average linear trend. Identical answers may overlap.")),
+        tags$p(class = "plot-note", "The trend line and shaded 95% band describe the average linear relationship.")),
       conditionalPanel("input.view == 'groups'",
-        section_heading("RESEARCH QUESTION 2", "How do domestic and international students compare?",
-                        "Explore the distribution within each group. Use Analysis to adjust for social media use and study time."),
-        tags$div(class = "plot-panel", plotOutput("groups_plot", height = "390px")),
-        tags$details(class = "axis-controls", tags$summary("Adjust the vertical axis"), uiOutput("group_zoom_ui"),
-          tags$p(class = "control-note", "Zooming does not remove responses from the summary statistics.")),
+        tags$section(class = "chart-card",
+          chart_header("How do the student groups compare?",
+                       "Compare domestic and international students on a measure of your choice.",
+            select_control("group_variable", "Measure", choices = variable_choices, selected = "cgpa", width = "100%"),
+            tags$div(class = "inline-controls",
+              radioButtons("group_style", "Plot style", choices = c("Boxplot" = "box", "Violin" = "violin"), inline = TRUE),
+              checkboxInput("show_points", "Show responses", TRUE))),
+          tags$div(class = "plot-panel", plotOutput("groups_plot", height = "370px")),
+          tags$details(class = "axis-controls", tags$summary("Axis limits"), uiOutput("group_zoom_ui"),
+            tags$p(class = "control-note", "Summary statistics use all filtered responses."))),
         uiOutput("groups_reading"),
         tags$div(class = "table-panel", tags$h3("Summary by student status"), tableOutput("group_table")),
         tags$p(class = "plot-note", "A box spans the middle 50% of responses; its line marks the median. A violin shows the estimated distribution. Points are slightly offset horizontally for visibility.")),
       conditionalPanel("input.view == 'distribution'",
-        section_heading("DAILY HABITS & ACADEMIC EXPERIENCE", "What does a typical response look like?",
-                        "Choose any key variable and adjust the histogram bins."),
-        tags$div(class = "plot-panel", plotOutput("distribution_plot", height = "390px")),
-        tags$details(class = "axis-controls", tags$summary("Adjust the horizontal axis"), uiOutput("dist_zoom_ui"),
-          tags$p(class = "control-note", "Zooming changes the view only. The interpretation uses the full filtered selection.")),
+        tags$section(class = "chart-card",
+          chart_header("What does a typical response look like?",
+                       "The histogram shows where responses cluster and how widely they vary.",
+            select_control("dist_variable", "Measure", choices = variable_choices, selected = "total_social_hours", width = "100%"),
+            conditionalPanel("input.dist_variable != 'satisfaction'",
+              sliderInput("bins", "Histogram bins", min = 4, max = 25, value = 10, step = 1, width = "100%"))),
+          tags$div(class = "plot-panel", plotOutput("distribution_plot", height = "370px")),
+          tags$details(class = "axis-controls", tags$summary("Axis limits"), uiOutput("dist_zoom_ui"),
+            tags$p(class = "control-note", "The interpretation uses all filtered responses."))),
         uiOutput("distribution_reading")),
       conditionalPanel("input.view == 'responses'",
-        section_heading("THE RESPONSES", "Explore the data behind the plots",
-                        "Search and sort the response table. Original survey aliases have been replaced with response numbers."),
-        downloadButton("download_data", "Download filtered responses", class = "btn-outline-primary"),
-        tags$p(class = "plot-note", "The download contains all responses selected by the sidebar filters. Table search narrows this table only."),
-        tags$div(class = "table-panel", DTOutput("response_table")),
+        tags$div(class = "table-panel response-panel",
+          chart_header("Survey responses",
+                       "Search or sort the table. The download includes every response in the current sample filters.",
+            downloadButton("download_data", "Download filtered responses", class = "btn-outline-primary")),
+          DTOutput("response_table")),
         tags$div(class = "table-panel", tags$h3("Summary statistics for the current selection"),
                  tableOutput("summary_table")),
-        tags$p(class = "plot-note", "SD measures spread around the mean. IQR is the width of the middle 50% of values (R quantile type 6, as in the EDA).")),
-      tags$footer("Voluntary survey · Self-reported data · Associations do not establish cause and effect")
+        tags$p(class = "plot-note", "SD measures spread around the mean. IQR is the width of the middle 50% of values (R quantile type 6, as in the EDA)."))
     )
   ),
-  nav_panel("Analysis", value = "Analysis",
-    tags$div(class = "page-content",
-      section_heading("REGRESSION & DIAGNOSTICS", "Does the association remain after adjustment?",
-                      "Compare the original EDA model with a model focused on total social media use, study time, and student status."),
-      uiOutput("analysis_selection"),
+  nav_panel("Regression", value = "Analysis",
+    tags$main(class = "site-shell page-content",
       uiOutput("model_metrics"),
       uiOutput("model_reading"),
-      tags$div(class = "table-panel", tags$h3("Linear regression results"),
-        tableOutput("regression_table"),
-        tags$p(class = "plot-note", "Coefficients are cGPA differences associated with one unit of a predictor, holding the other included variables fixed. Domestic is the reference status when both groups are selected. Confidence intervals and p-values use conventional OLS t inference."),
-        tags$p(class = "plot-note", "The intercept is the fitted cGPA when all included numeric predictors equal zero. When both statuses are selected, domestic is the reference group. Zero study time lies outside the observed range.")),
-      tags$div(class = "plot-panel", plotOutput("coefficient_plot", height = "380px")),
-      tags$h3(class = "assumptions-title", "Interpretation of model assumptions"),
-      tags$p(class = "section-description", "The EDA raised concerns about linearity, equal residual variance, and mild departures from normality. Inspect the current filtered model below. These plots suggest concerns; they do not prove that an assumption is violated."),
-      select_control("diagnostic", "Diagnostic plot", choices = c(
-        "Linearity: residuals vs fitted" = "residuals",
-        "Constant variance: spread vs fitted" = "spread",
-        "Normality: normal Q-Q plot" = "qq"), width = "100%"),
-      tags$div(class = "plot-panel", plotOutput("diagnostic_plot", height = "340px")),
+      tags$section(class = "table-panel",
+        tags$h2("Model coefficients"),
+        tags$div(class = "result-grid",
+          tags$div(class = "table-scroll", tableOutput("regression_table")),
+          tags$figure(class = "coefficient-figure",
+            tags$figcaption(
+              tags$h3("Adjusted cGPA estimates"),
+              tags$p(class = "section-description", "Dots mark estimates. Lines show 95% confidence intervals.")),
+            plotOutput("coefficient_plot", height = "365px"))),
+        tags$p(class = "plot-note", "Each coefficient estimates a cGPA difference while holding the other predictors fixed. Domestic is the reference group when both statuses are selected. Confidence intervals and p-values use conventional OLS t inference."),
+        tags$p(class = "plot-note", "The intercept is the fitted cGPA at the reference status and zero for every numeric predictor. Zero study time lies outside the observed range.")),
+      tags$section(class = "chart-card",
+        chart_header("Interpretation of model assumptions",
+                     "The EDA raised concerns about linearity, equal residual variance, and mild departures from normality. Use the plots to examine these patterns in the selected data.",
+          select_control("diagnostic", "Diagnostic plot", choices = c(
+            "Linearity: residuals vs fitted" = "residuals",
+            "Constant variance: spread vs fitted" = "spread",
+            "Normality: normal Q-Q plot" = "qq"), width = "100%")),
+        tags$div(class = "plot-panel", plotOutput("diagnostic_plot", height = "340px"))),
       uiOutput("diagnostic_reading"),
       tags$div(class = "assumption-notes",
         tags$h4("Independence and sampling"),
-        tags$p("Independence cannot be established from a diagnostic plot. Participation was voluntary and included mutual survey completion with other groups. These responses may not represent all STA304H5 students, and the results should not be generalized to all university students.")),
-      tags$footer("Exploratory analysis · Filtering creates smaller, less precise estimates · Repeated exploration is not a confirmatory test")
+        tags$p("Independence cannot be established from a diagnostic plot. Participation was voluntary and included mutual survey completion with other groups. These responses may not represent all STA304H5 students, and the results should not be generalized to all university students."))
     )
   ),
-  nav_panel("About", value = "About",
-    tags$div(class = "page-content about-content",
-      section_heading("ABOUT THE STUDY", "Online habits in STA304H5",
-                      "Group 18: Edward, Angela, Sasha, Ali, and Prativa"),
-      tags$div(class = "about-grid",
-        tags$div(class = "about-block", tags$h3("Our questions"),
-          tags$ol(tags$li("Is average daily social media use associated with self-reported cumulative GPA?"),
-                  tags$li("Do domestic and international students differ in cGPA after accounting for social media use and daily study time?"))),
-        tags$div(class = "about-block", tags$h3("Who answered?"),
-          tags$p("The target population was students enrolled in STA304H5 at the University of Toronto Mississauga in Fall 2026. A voluntary Google Forms questionnaire was shared on the course discussion board. The group also engaged in mutual survey completion with peer groups."))),
-      tags$div(class = "about-block", tags$h3("From 72 responses to 64"),
+  nav_panel("Study notes", value = "About",
+    tags$main(class = "site-shell page-content about-grid",
+      tags$section(class = "about-block", tags$h2("Our questions"),
+        tags$ol(tags$li("Is average daily social media use associated with self-reported cumulative GPA?"),
+                tags$li("Do domestic and international students differ in cGPA after accounting for social media use and daily study time?"))),
+      tags$section(class = "about-block", tags$h2("Who answered?"),
+        tags$p("The target population was students enrolled in STA304H5 at the University of Toronto Mississauga in Fall 2026. A voluntary Google Forms questionnaire was shared on the course discussion board. The group also engaged in mutual survey completion with peer groups.")),
+      tags$section(class = "about-block", tags$h2("From 72 responses to 64"),
         tags$p("This app uses the same eight record exclusions as the submitted EDA, as confirmed by the group. The original workbook has six yellow-marked IDs; two additional, unmarked records were excluded in the EDA. No extra records are removed by the app."),
         tags$p("The EDA described the exclusions as seven implausible daily-use records and one zero-cGPA record. A cGPA of zero is within the questionnaire range; its exclusion follows the group's EDA decision and should not be treated as a universal cleaning rule."),
         tags$p("The cleaned sample has 42 domestic and 22 international students. Survey aliases are replaced with sequential response numbers. The original Excel file is unchanged.")),
-      tags$div(class = "about-block", tags$h3("What the measures mean"),
+      tags$section(class = "about-block", tags$h2("What the measures mean"),
         tags$dl(class = "definitions",
           tags$dt("cGPA"), tags$dd("Self-reported cumulative GPA on a 0-4 scale. Answers are used as supplied; they are not rounded again."),
           tags$dt("Total social media use"), tags$dd("The sum of hours reported for short-form video, text-based platforms, and calls/messaging. Activities can overlap, so this is a sum of reported category hours rather than verified distinct screen time."),
           tags$dt("Time off before bed"), tags$dd("Minutes between stopping social media use and sleeping, as reported by the respondent."),
           tags$dt("Satisfaction"), tags$dd("Satisfaction with cGPA, from 1 (worst) to 10 (best)."))),
-      tags$div(class = "about-block", tags$h3("What can we conclude?"),
+      tags$section(class = "about-block", tags$h2("What can we conclude?"),
         tags$p("In the full cleaned sample, the EDA found almost no linear correlation between total reported social media use and cGPA. Its regression also provided insufficient evidence for the proposed associations. This does not establish that social media has no relationship with academic performance."),
         tags$p("The sample is small and voluntary. GPA, time use, and satisfaction are self-reported, with possible rounding and recall error. Group sizes differ, other relevant factors were not measured, and the study is observational. Filters describe the selected responses and can make estimates less stable.")),
-      tags$div(class = "about-block", tags$h3("How to use this app"),
-        tags$p("Choose a view under Explore, filter by student status or study time, and change variables, colours, or axis limits. Analysis refits the selected regression using the same filtered responses. An empty selection or a model that cannot be estimated produces an explanatory message."),
-        tags$p("The sidebar filters affect all data outputs. Table search affects only the response table. Axis limits affect only what is visible in a plot.")),
-      tags$div(class = "about-block source-note", tags$h3("Sources and design"),
-        tags$p("Data: the group's supplied survey workbook. Study context and initial analysis: STA304 Exploratory Data Analysis, Group 18, October 25, 2026. App requirements: STA304 Shiny Website Instructions, 2026."),
-        tags$p("The sidebar-and-tabs navigation is inspired by the course example. The research questions, data preparation, plots, regression summaries, diagnostic explanations, filters, and styling are specific to this project.")),
-      tags$footer("STA304H5 · University of Toronto Mississauga · Fall 2026")
+      tags$section(class = "about-block", tags$h2("How to use this app"),
+        tags$p("Set student status and study time with the sample filters above the charts. In Explore, choose Association, Group comparison, Distributions, or Responses. Open Plot styling to change colours and use Axis limits to zoom."),
+        tags$p("Regression uses the same sample filters. Table search affects only the table, and axis limits affect only the visible plot area."))
     )
-  )
+  ),
+  footer = tags$footer(class = "site-shell site-footer",
+    tags$span("Group 18 · University of Toronto Mississauga · Fall 2026"),
+    tags$span("Voluntary survey · Self-reported data"))
 )
 
 server <- function(input, output, session) {
@@ -220,15 +239,15 @@ server <- function(input, output, session) {
   })
   scatter_colours <- reactive({
     values <- if (isTRUE(input$scatter_multicolour)) palette_colours(input$scatter_palette %||% "rainbow", 2) else
-      rep(plot_colour(input$scatter_colour, "#5B10A7"), 2)
+      rep(plot_colour(input$scatter_colour, default_colours$points), 2)
     stats::setNames(values, c("Domestic", "International"))
   })
   comparison_colours <- reactive({
     values <- if (isTRUE(input$group_multicolour)) palette_colours(input$group_palette %||% "rainbow", 2) else
-      rep(plot_colour(input$group_colour, "#FF6666"), 2)
+      rep(plot_colour(input$group_colour, default_colours$groups), 2)
     stats::setNames(values, c("Domestic", "International"))
   })
-  analysis_colour <- reactive(plot_colour(input$analysis_colour, "#5B10A7"))
+  analysis_colour <- reactive(plot_colour(input$analysis_colour, default_colours$analysis))
   correlation <- reactive(pearson_result(filtered(), input$x_variable %||% "total_social_hours"))
   model_result <- reactive(fit_survey_model(filtered(), input$model_type %||% "eda"))
   model_coefficients <- reactive(coefficient_table(model_result()))
@@ -238,25 +257,22 @@ server <- function(input, output, session) {
     updateSliderInput(session, "study_filter", value = study_limits)
   })
 
-  selection_ui <- function() {
+  output$selection_summary <- renderUI({
     d <- filtered()
     groups <- levels(droplevels(d$status))
     name <- if (length(groups) == 2) "All student statuses" else if (length(groups)) groups else "No students selected"
-    tags$div(class = paste("selection-summary", if (!nrow(d)) "empty-selection"),
-      tags$span(class = "selection-dot", ""),
+    tags$div(class = "selection-summary",
       tags$span(tags$strong(paste(nrow(d), "of", nrow(survey), "responses")), " · ", name),
       if (nrow(d) < 10) tags$span(class = "selection-caution", "Small selection: estimates may be unavailable or imprecise."))
-  }
-  output$selection_summary <- renderUI(selection_ui())
-  output$analysis_selection <- renderUI(selection_ui())
+  })
   output$headline_metrics <- renderUI({
     d <- filtered()
     n <- nrow(d)
     tags$div(class = "metrics-grid",
       metric("Responses selected", as.character(n), sprintf("%d domestic · %d international", sum(d$status == "Domestic"), sum(d$status == "International"))),
-      metric("Mean cGPA", if (n) number_text(mean(d$cgpa)) else "—", "On a 0-4 scale"),
-      metric("Median social media use", if (n) paste0(number_text(median(d$total_social_hours), 1), " h") else "—", "Sum of reported hours per day"),
-      metric("Mean daily study time", if (n) paste0(number_text(mean(d$study_hours), 1), " h") else "—", "Self-reported hours per day"))
+      metric("Mean cGPA", if (n) number_text(mean(d$cgpa)) else "—", "On a 0–4 scale"),
+      metric("Median social media use", if (n) paste0(number_text(median(d$total_social_hours), 1), " h") else "—", "Per day"),
+      metric("Mean study time", if (n) paste0(number_text(mean(d$study_hours), 1), " h") else "—", "Per day"))
   })
 
   output$x_zoom_ui <- renderUI({
@@ -291,7 +307,7 @@ server <- function(input, output, session) {
       coord_cartesian(xlim = safe_zoom(input$x_zoom, axis_range(survey, v)),
                       ylim = safe_zoom(input$cgpa_zoom, c(0, 4)))
     if (isTRUE(input$show_fit) && nrow(d) >= 3 && length(unique(d[[v]])) > 1 && length(unique(d$cgpa)) > 1) {
-      p <- p + geom_smooth(method = "lm", formula = y ~ x, colour = "#2C3E50", fill = "#A6BAC7", linewidth = .8, alpha = .22)
+      p <- p + geom_smooth(method = "lm", formula = y ~ x, colour = "#284A3D", fill = "#9BB5A5", linewidth = .8, alpha = .23)
     }
     p
   })
@@ -351,7 +367,7 @@ server <- function(input, output, session) {
     gap <- s$Mean[s$Status == "International"] - s$Mean[s$Status == "Domestic"]
     reading_box("Reading the comparison",
       tags$p(sprintf("For %s, the mean is %.2f among domestic students and %.2f among international students. The international-minus-domestic difference is %.2f in the displayed units.", short_labels[v], s$Mean[s$Status == "Domestic"], s$Mean[s$Status == "International"], gap)),
-      tags$p("This is a descriptive comparison. It does not adjust for study time or social media use; the regression on the Analysis tab provides that adjustment."))
+      tags$p("This comparison describes the groups' responses. Use Regression to compare cGPA while accounting for study time and social media use."))
   })
 
   distribution_chart <- reactive({
@@ -366,7 +382,7 @@ server <- function(input, output, session) {
                               colour = "white", linewidth = .35) +
         scale_fill_manual(values = palette_colours(input$dist_palette %||% "rainbow", length(breaks) - 1), guide = "none")
     } else {
-      p <- p + geom_histogram(breaks = breaks, fill = plot_colour(input$dist_colour, "#6699FF"),
+      p <- p + geom_histogram(breaks = breaks, fill = plot_colour(input$dist_colour, default_colours$bars),
                               colour = "white", linewidth = .35)
     }
     p +
@@ -386,7 +402,7 @@ server <- function(input, output, session) {
     reading_box("Reading the distribution",
       tags$p(sprintf("Across %d responses, %s has a median of %.2f and a mean of %.2f. The middle 50%% spans %.2f to %.2f; observed values range from %.2f to %.2f, in the units on the horizontal axis.",
         length(x), short_labels[v], median(x), mean(x), quantile(x, .25, type = 6), quantile(x, .75, type = 6), min(x), max(x))),
-      tags$p(if (v == "satisfaction") "Each bar is one satisfaction rating. Changing the bin control applies to the continuous variables; satisfaction always uses its ten response levels." else "Each bar counts responses in an interval. Changing the bins changes the shape of the display, while the summary statistics stay the same."))
+      tags$p(if (v == "satisfaction") "Each bar counts responses at one satisfaction rating." else "Each bar counts responses in an interval. Changing the bins changes the shape of the display, while the summary statistics stay the same."))
   })
 
   output$response_table <- renderDT({
@@ -409,7 +425,7 @@ server <- function(input, output, session) {
     m <- model_result()
     if (!m$available) return(NULL)
     tags$div(class = "metrics-grid",
-      metric("Model responses", m$n, "Current sidebar selection"),
+      metric("Model responses", m$n, "Current sample selection"),
       metric("R-squared", number_text(m$summary$r.squared, 3), "Proportion of cGPA variation explained"),
       metric("Adjusted R-squared", number_text(m$summary$adj.r.squared, 3), "Accounts for the number of predictors"),
       metric("Overall model p-value", p_text(m$p), "F-test against an intercept-only model"))
@@ -441,7 +457,14 @@ server <- function(input, output, session) {
       geom_vline(xintercept = 0, linetype = "dashed", colour = "#7D8A95") +
       geom_segment(aes(x = lower, xend = upper, yend = label), colour = analysis_colour(), linewidth = 1) +
       geom_point(colour = analysis_colour(), size = input$point_size %||% 2.8) +
-      labs(title = "Adjusted associations\nand 95% confidence intervals", x = "Estimated difference in cGPA", y = NULL) + chart_theme()
+      scale_y_discrete(labels = function(labels) vapply(labels, plot_label, character(1), width = 18)) +
+      scale_x_continuous(n.breaks = 3) +
+      labs(x = "cGPA difference", y = NULL) +
+      chart_theme() +
+      theme(axis.text.y = element_text(size = 10, lineheight = .95),
+            axis.text.x = element_text(size = 10),
+            axis.title.x = element_text(size = 11),
+            plot.margin = margin(8, 10, 8, 6))
   })
   output$coefficient_plot <- renderPlot({
     m <- model_result()
