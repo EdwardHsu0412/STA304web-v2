@@ -24,6 +24,50 @@ chart_header <- function(title, description, ...) {
 reading_box <- function(title, ...) {
   tags$div(class = "reading-box", tags$h3(title), ...)
 }
+# Plain-language summary shown first in every interpretation; statistical detail follows it.
+plain_lead <- function(...) tags$p(class = "plain-lead", tags$span(class = "plain-tag", "In plain terms"), ...)
+detail_label <- function(text = "Statistical details") tags$p(class = "detail-label", text)
+plain_note <- function(...) tags$p(class = "plot-note plain-note", tags$strong("In plain terms: "), ...)
+unit_labels <- c(cgpa = "grade points", total_social_hours = "hours a day", study_hours = "hours a day",
+                 short_video_hours = "hours a day", text_hours = "hours a day", communication_hours = "hours a day",
+                 cooldown_minutes = "minutes", satisfaction = "points on the 1-10 scale")
+percent_text <- function(x) if (length(x) && is.finite(x)) sprintf("%.0f%%", 100 * x) else "an unknown share"
+word_list <- function(x) if (length(x) <= 2) paste(x, collapse = " and ") else
+  paste0(paste(x[-length(x)], collapse = ", "), " and ", x[length(x)])
+plain_term <- function(label) {
+  label <- sub(" \\(.*\\)$", "", label)
+  ifelse(label == "International vs domestic", "student status", tolower(label))
+}
+# Describes what the current diagnostic plot shows, in plain words plus the supporting number.
+diagnostic_finding <- function(fit, diagnostic) {
+  fitted_values <- stats::fitted(fit)
+  res <- stats::residuals(fit)
+  std <- stats::rstandard(fit)
+  if (diagnostic == "residuals") {
+    smooth <- tryCatch(suppressWarnings(stats::predict(stats::loess(res ~ fitted_values, span = .9))), error = function(e) NULL)
+    if (is.null(smooth) || !all(is.finite(smooth)) || stats::sd(res) == 0)
+      return(list(plain = "There are too few responses here to draw a reliable trend line, so this check can't tell us much.", detail = "Smooth curve unavailable for this selection."))
+    bend <- max(abs(smooth)) / stats::sd(res)
+    list(plain = if (bend < .25) "The orange line stays close to zero all the way across, so a straight-line model looks reasonable for these students."
+                 else "The orange line bends away from zero, so a straight-line model may be missing a curved pattern in these students' cGPAs.",
+         detail = sprintf("Largest distance of the smooth curve from zero: %.2f residual standard deviations (under 0.25 treated as close to flat).", bend))
+  } else if (diagnostic == "spread") {
+    rho <- suppressWarnings(stats::cor(fitted_values, sqrt(abs(std)), method = "spearman"))
+    if (!is.finite(rho)) return(list(plain = "There isn't enough variation here to judge whether the spread changes.", detail = "Spearman correlation unavailable."))
+    list(plain = if (abs(rho) < .2) "The points are spread about evenly from left to right, so the model's errors look similar for students with low and high predicted cGPAs."
+                 else if (rho > 0) "The points spread out more toward the right, so the model's predictions are less precise for students with higher predicted cGPAs."
+                 else "The points spread out more toward the left, so the model's predictions are less precise for students with lower predicted cGPAs.",
+         detail = sprintf("Spearman correlation between fitted cGPA and residual spread: %.2f (under 0.2 in size treated as roughly even).", rho))
+  } else {
+    sw <- if (length(res) >= 3 && length(res) <= 5000 && stats::sd(res) > 0) stats::shapiro.test(res)$p.value else NA_real_
+    far <- sum(abs(std) > 2)
+    plain <- if (is.finite(sw) && sw >= .05) "The points mostly follow the reference line, so the model's errors look roughly bell-shaped and its p-values are reasonable to read."
+             else "The points drift away from the line at the ends, meaning some students' cGPAs are much further from the model's prediction than expected. Treat the p-values and confidence intervals with some caution."
+    if (far) plain <- paste(plain, sprintf("%d of %d students %s unusually far from their predicted cGPA.", far, length(res), if (far == 1) "sits" else "sit"))
+    list(plain = plain,
+         detail = sprintf("Shapiro-Wilk normality test p-value: %s · %d %s with |standardized residual| > 2.", p_text(sw), far, if (far == 1) "response" else "responses"))
+  }
+}
 chart_theme <- function() {
   theme_minimal(base_size = 13, base_family = "sans") +
     theme(panel.grid.minor = element_blank(),
@@ -137,6 +181,7 @@ ui <- page_navbar(
               sliderInput("cgpa_zoom", "cGPA axis limits", min = 0, max = 4, value = c(0, 4), step = .1)),
             tags$p(class = "control-note", "Axis limits zoom the plot. Statistics use all filtered responses."))),
         uiOutput("correlation_reading"),
+        plain_note("If the trend line is nearly flat, this habit doesn't tell us much about a student's cGPA. The wider the shaded band, the less sure we are about where the line really sits."),
         tags$p(class = "plot-note", "The trend line and shaded 95% band describe the average linear relationship.")),
       conditionalPanel("input.view == 'groups'",
         tags$section(class = "chart-card",
@@ -151,6 +196,7 @@ ui <- page_navbar(
             tags$p(class = "control-note", "Summary statistics use all filtered responses."))),
         uiOutput("groups_reading"),
         tags$div(class = "table-panel", tags$h3("Summary by student status"), tableOutput("group_table")),
+        plain_note("The thick line inside each box is the middle student in that group. A taller box or wider violin means students in that group gave more varied answers."),
         tags$p(class = "plot-note", "A box spans the middle 50% of responses; its line marks the median. A violin shows the estimated distribution. Points are slightly offset horizontally for visibility.")),
       conditionalPanel("input.view == 'distribution'",
         tags$section(class = "chart-card",
@@ -171,13 +217,14 @@ ui <- page_navbar(
           DTOutput("response_table")),
         tags$div(class = "table-panel", tags$h3("Summary statistics for the current selection"),
                  tableOutput("summary_table")),
+        plain_note("The mean is the average answer and the median is the middle answer. SD and IQR show how spread out the answers are: bigger numbers mean students answered less alike."),
         tags$p(class = "plot-note", "SD measures spread around the mean. IQR is the width of the middle 50% of values (R quantile type 6, as in the EDA)."))
     )
   ),
   nav_panel("Regression", value = "Analysis",
     tags$main(class = "site-shell page-content",
-      uiOutput("model_metrics"),
       uiOutput("model_reading"),
+      uiOutput("model_metrics"),
       tags$section(class = "table-panel",
         tags$h2("Model coefficients"),
         tags$div(class = "result-grid",
@@ -187,6 +234,7 @@ ui <- page_navbar(
               tags$h3("Adjusted cGPA estimates"),
               tags$p(class = "section-description", "Dots mark estimates. Lines show 95% confidence intervals.")),
             plotOutput("coefficient_plot", height = "365px"))),
+        plain_note("Each row asks: if two students were alike in everything else in the model, how different would we expect their cGPAs to be if one had a bit more of this habit? A dot near the dashed zero line, with a line crossing it, means no clear difference."),
         tags$p(class = "plot-note", "Each coefficient estimates a cGPA difference while holding the other predictors fixed. Domestic is the reference group when both statuses are selected. Confidence intervals and p-values use conventional OLS t inference."),
         tags$p(class = "plot-note", "The intercept is the fitted cGPA at the reference status and zero for every numeric predictor. Zero study time lies outside the observed range.")),
       tags$section(class = "chart-card",
@@ -200,32 +248,39 @@ ui <- page_navbar(
       uiOutput("diagnostic_reading"),
       tags$div(class = "assumption-notes",
         tags$h4("Independence and sampling"),
+        plain_note("These are the students who chose to answer our survey, not a random sample of the class, so the results describe them and shouldn't be stretched to all students."),
         tags$p("Independence cannot be established from a diagnostic plot. Participation was voluntary and included mutual survey completion with other groups. These responses may not represent all STA304H5 students, and the results should not be generalized to all university students."))
     )
   ),
   nav_panel("Study notes", value = "About",
     tags$main(class = "site-shell page-content about-grid",
       tags$section(class = "about-block", tags$h2("Our questions"),
+        tags$p("We went into this survey wanting to answer two things:"),
         tags$ol(tags$li("Is average daily social media use associated with self-reported cumulative GPA?"),
                 tags$li("Do domestic and international students differ in cGPA after accounting for social media use and daily study time?"))),
       tags$section(class = "about-block", tags$h2("Who answered?"),
-        tags$p("The target population was students enrolled in STA304H5 at the University of Toronto Mississauga in Fall 2026. A voluntary Google Forms questionnaire was shared on the course discussion board. The group also engaged in mutual survey completion with peer groups.")),
+        tags$p("Our target population was students enrolled in STA304H5 at the University of Toronto Mississauga in Fall 2026. We shared a voluntary Google Forms questionnaire on the course discussion board, and we also traded survey completions with other groups (we filled out theirs, they filled out ours)."),
+        tags$p("One note: because students chose whether to answer, the people in our sample aren't a random draw from the class.")),
       tags$section(class = "about-block", tags$h2("From 72 responses to 64"),
-        tags$p("This app uses the same eight record exclusions as the submitted EDA, as confirmed by the group. The original workbook has six yellow-marked IDs; two additional, unmarked records were excluded in the EDA. No extra records are removed by the app."),
-        tags$p("The EDA described the exclusions as seven implausible daily-use records and one zero-cGPA record. A cGPA of zero is within the questionnaire range; its exclusion follows the group's EDA decision and should not be treated as a universal cleaning rule."),
-        tags$p("The cleaned sample has 42 domestic and 22 international students. Survey aliases are replaced with sequential response numbers. The original Excel file is unchanged.")),
+        tags$p("We received 72 responses and removed 8 of them before any analysis. These are the exact same 8 records we excluded in our EDA, so the app and the EDA work from identical data. The app doesn't remove anything extra."),
+        tags$p("We flagged 6 of those records when we first went through the raw responses, then caught 2 more while writing the EDA. Seven reported daily social media use that we judged wasn't realistic, and one reported a cGPA of 0."),
+        tags$p("One note on that last one: a cGPA of 0 is technically allowed on our questionnaire's 0-4 scale. Removing it was a judgment call we made for our data, not a cleaning rule we'd apply everywhere."),
+        tags$p("That leaves 64 students: 42 domestic and 22 international. We swapped each survey alias for a plain response number to keep answers anonymous, and we kept our original raw data file untouched.")),
       tags$section(class = "about-block", tags$h2("What the measures mean"),
         tags$dl(class = "definitions",
-          tags$dt("cGPA"), tags$dd("Self-reported cumulative GPA on a 0-4 scale. Answers are used as supplied; they are not rounded again."),
-          tags$dt("Total social media use"), tags$dd("The sum of hours reported for short-form video, text-based platforms, and calls/messaging. Activities can overlap, so this is a sum of reported category hours rather than verified distinct screen time."),
-          tags$dt("Time off before bed"), tags$dd("Minutes between stopping social media use and sleeping, as reported by the respondent."),
-          tags$dt("Satisfaction"), tags$dd("Satisfaction with cGPA, from 1 (worst) to 10 (best)."))),
+          tags$dt("cGPA"), tags$dd("Self-reported cumulative GPA on a 0-4 scale. We used answers exactly as students gave them and didn't round them again."),
+          tags$dt("Total social media use"), tags$dd("The hours a student reported for short-form video, text-based platforms and calls/messaging, added together. These activities can overlap (someone might message while watching videos), so this is a sum of reported hours rather than verified screen time."),
+          tags$dt("Time off before bed"), tags$dd("How many minutes a student says they stop using social media before going to sleep."),
+          tags$dt("Satisfaction"), tags$dd("How satisfied a student is with their cGPA, from 1 (worst) to 10 (best)."))),
       tags$section(class = "about-block", tags$h2("What can we conclude?"),
-        tags$p("In the full cleaned sample, the EDA found almost no linear correlation between total reported social media use and cGPA. Its regression also provided insufficient evidence for the proposed associations. This does not establish that social media has no relationship with academic performance."),
-        tags$p("The sample is small and voluntary. GPA, time use, and satisfaction are self-reported, with possible rounding and recall error. Group sizes differ, other relevant factors were not measured, and the study is observational. Filters describe the selected responses and can make estimates less stable.")),
+        tags$p(class = "plain-lead", tags$span(class = "plain-tag", "In plain terms"),
+          "In our survey, students who used more social media didn't have noticeably different GPAs than students who used less. That doesn't prove social media has no effect on grades. Our sample may just be too small to pick one up."),
+        tags$p("In the full cleaned sample, our EDA found almost no linear correlation between total reported social media use and cGPA. Our regression also gave insufficient evidence for the associations we proposed. This doesn't establish that social media has no relationship with academic performance."),
+        tags$p("Some limits we want to be upfront about: the sample is small and voluntary. GPA, time use and satisfaction are all self-reported, so there's room for rounding and memory error. Our two groups are different sizes, we didn't measure every factor that could matter, and this is an observational study, so it can show patterns but not causes. Filtering down to a smaller group describes just those students and can make the estimates less stable.")),
       tags$section(class = "about-block", tags$h2("How to use this app"),
-        tags$p("Set student status and study time with the sample filters above the charts. In Explore, choose Association, Group comparison, Distributions, or Responses. Open Plot styling to change colours and use Axis limits to zoom."),
-        tags$p("Regression uses the same sample filters. Table search affects only the table, and axis limits affect only the visible plot area."))
+        tags$p("Every results box starts with a short plain-language summary. If you want the statistics behind it (correlations, confidence intervals, p-values), they're right underneath."),
+        tags$p("Use the sample filters above the charts to pick student status and study time. In Explore, choose Association, Group comparison, Distributions or Responses. Open Plot styling to change colours, and use Axis limits to zoom in."),
+        tags$p("Regression uses the same sample filters. Searching the table only affects the table, and axis limits only change what's visible in the plot."))
     )
   ),
   footer = tags$footer(class = "site-shell site-footer",
@@ -322,9 +377,18 @@ server <- function(input, output, session) {
     trend <- if (abs(r$r) < .1) "almost no straight-line relationship" else paste(
       if (abs(r$r) < .3) "a weak" else if (abs(r$r) < .5) "a moderate" else "a strong",
       if (r$r > 0) "positive linear relationship" else "negative linear relationship")
+    more <- if (v == "satisfaction") "higher" else "more"
+    pattern <- if (abs(r$r) < .1) "didn't have noticeably different cGPAs from students who reported less" else paste(
+      "tended to have", if (abs(r$r) < .3) "slightly" else if (abs(r$r) < .5) "somewhat" else "clearly",
+      if (r$r > 0) "higher" else "lower", "cGPAs")
+    chance <- if (r$p >= .05) "A pattern this small could easily show up by chance in a sample this size, so we can't call it a real link." else
+      "A pattern this strong is unlikely to be just chance, but it doesn't mean one causes the other."
     reading_box("Reading the relationship",
+      plain_lead(sprintf("Students who reported %s %s %s. %s", more, short_labels[v], pattern, chance)),
+      detail_label(),
       tags$p(sprintf("Among these %d responses, %s and cGPA show %s (Pearson r = %.3f).", r$n, short_labels[v], trend, r$r)),
       tags$p(class = "stat-line", sprintf("95%% confidence interval for r: [%.3f, %.3f] · p-value: %s", r$ci[1], r$ci[2], p_text(r$p))),
+      tags$p(class = "stat-line", "Pearson r runs from -1 to 1. Values near 0 mean no straight-line pattern; values near -1 or 1 mean the points fall close to a line."),
       tags$p(if (r$p >= .05) "These data provide insufficient evidence of a linear association at the 5% level. This does not establish that no relationship exists." else
         "This exploratory selection shows evidence of a linear association at the 5% level. The association does not establish cause and effect."))
   })
@@ -364,9 +428,24 @@ server <- function(input, output, session) {
     v <- input$group_variable %||% "cgpa"
     s <- group_summary(d, v)
     if (nrow(s) < 2) return(reading_box("Reading the comparison", tags$p(sprintf("Only %s students are selected (n = %d). Select both statuses to compare their distributions.", tolower(s$Status[1]), nrow(d)))))
-    gap <- s$Mean[s$Status == "International"] - s$Mean[s$Status == "Domestic"]
+    dom <- s$Mean[s$Status == "Domestic"]
+    intl <- s$Mean[s$Status == "International"]
+    gap <- intl - dom
+    unit <- unit_labels[[v]]
+    spread <- stats::sd(d[[v]])
+    size <- if (is.finite(spread) && spread > 0) abs(gap) / spread else 0
+    lead <- if (size < .2) {
+      sprintf("Domestic and international students reported about the same %s on average (%.2f vs %.2f %s, a gap of only %.2f).",
+              short_labels[v], dom, intl, unit, abs(gap))
+    } else {
+      sprintf("International students reported %s %s %s than domestic students on average (%.2f vs %.2f %s, a gap of %.2f).",
+              if (size < .5) "somewhat" else "noticeably", if (gap > 0) "higher" else "lower", short_labels[v], intl, dom, unit, abs(gap))
+    }
     reading_box("Reading the comparison",
-      tags$p(sprintf("For %s, the mean is %.2f among domestic students and %.2f among international students. The international-minus-domestic difference is %.2f in the displayed units.", short_labels[v], s$Mean[s$Status == "Domestic"], s$Mean[s$Status == "International"], gap)),
+      plain_lead(lead, " With groups this small, a gap like this could shift if a few different students had answered."),
+      detail_label(),
+      tags$p(sprintf("For %s, the mean is %.2f among domestic students and %.2f among international students. The international-minus-domestic difference is %.2f %s.", short_labels[v], dom, intl, gap, unit)),
+      tags$p(class = "stat-line", sprintf("Standardized difference: %.2f standard deviations (under 0.2 is usually treated as negligible, 0.5 or more as moderate).", if (spread > 0) gap / spread else 0)),
       tags$p("This comparison describes the groups' responses. Use Regression to compare cGPA while accounting for study time and social media use."))
   })
 
@@ -399,7 +478,15 @@ server <- function(input, output, session) {
     if (!nrow(d)) return(reading_box("Reading the distribution", tags$p("No responses selected.")))
     v <- input$dist_variable %||% "total_social_hours"
     x <- d[[v]]
+    digits <- if (v == "cgpa") 2 else if (v == "cooldown_minutes") 0 else 1
+    fmt <- function(z) formatC(z, format = "f", digits = digits)
+    skew <- if (length(x) > 1 && stats::sd(x) > 0) (mean(x) - median(x)) / stats::sd(x) else 0
+    skew_text <- if (skew > .15) " A few unusually high answers pull the average up above that typical value." else
+      if (skew < -.15) " A few unusually low answers pull the average down below that typical value." else ""
     reading_box("Reading the distribution",
+      plain_lead(sprintf("The typical student here reported %s of about %s %s, and half of the students fell between %s and %s.%s",
+        short_labels[v], fmt(median(x)), unit_labels[[v]], fmt(quantile(x, .25, type = 6)), fmt(quantile(x, .75, type = 6)), skew_text)),
+      detail_label(),
       tags$p(sprintf("Across %d responses, %s has a median of %.2f and a mean of %.2f. The middle 50%% spans %.2f to %.2f; observed values range from %.2f to %.2f, in the units on the horizontal axis.",
         length(x), short_labels[v], median(x), mean(x), quantile(x, .25, type = 6), quantile(x, .75, type = 6), min(x), max(x))),
       tags$p(if (v == "satisfaction") "Each bar counts responses at one satisfaction rating." else "Each bar counts responses in an interval. Changing the bins changes the shape of the display, while the summary statistics stay the same."))
@@ -427,15 +514,41 @@ server <- function(input, output, session) {
     tags$div(class = "metrics-grid",
       metric("Model responses", m$n, "Current sample selection"),
       metric("R-squared", number_text(m$summary$r.squared, 3), "Proportion of cGPA variation explained"),
-      metric("Adjusted R-squared", number_text(m$summary$adj.r.squared, 3), "Accounts for the number of predictors"),
-      metric("Overall model p-value", p_text(m$p), "F-test against an intercept-only model"))
+      metric("Adjusted R-squared", number_text(m$summary$adj.r.squared, 3),
+             if (is.finite(m$summary$adj.r.squared) && m$summary$adj.r.squared < 0)
+               "Accounts for the number of predictors. Below zero means the model does no better than just guessing the average cGPA"
+             else "Accounts for the number of predictors"),
+      metric("Overall model p-value", p_text(m$p),
+             paste("F-test against an intercept-only model.",
+                   if (is.finite(m$p) && m$p < .05) "Below 0.05: the model predicts better than the average alone"
+                   else "0.05 or above: no clear sign the model beats the average alone")))
   })
   output$model_reading <- renderUI({
     m <- model_result()
     if (!m$available) return(reading_box("Model unavailable for this selection", tags$p(m$message)))
     rows <- m$coefficients[m$coefficients$term != "(Intercept)", , drop = FALSE]
     status <- rows[rows$term == "statusInternational", , drop = FALSE]
+    factors <- plain_term(rows$label)
+    clear <- factors[rows$p < .05]
+    r2 <- m$summary$r.squared
+    link_text <- if (!length(clear)) {
+      sprintf("Once everything else in the model is taken into account, none of %s shows a clear link with cGPA.", word_list(factors))
+    } else {
+      sprintf("Once everything else in the model is taken into account, %s %s a clear link with cGPA, while the rest don't.",
+              word_list(clear), if (length(clear) == 1) "shows" else "show")
+    }
+    fit_text <- sprintf("Together, these factors account for %sabout %s of the differences in students' cGPAs.",
+                        if (r2 < .2) "only " else "", percent_text(r2))
+    status_text <- if (nrow(status)) {
+      crosses <- status$lower < 0 && status$upper > 0
+      sprintf(" Comparing students with the same habits, international students' predicted cGPA is %.2f grade points %s than domestic students'%s",
+              abs(status$estimate), if (status$estimate < 0) "lower" else "higher",
+              if (crosses) sprintf(", but the plausible range (%.2f to %.2f) includes zero, so we can't tell which group actually does better.", status$lower, status$upper)
+              else sprintf(", and the plausible range (%.2f to %.2f) doesn't include zero.", status$lower, status$upper))
+    } else ""
     reading_box("Reading the adjusted results",
+      plain_lead(link_text, " ", fit_text, status_text),
+      detail_label(),
       tags$p(sprintf("This model explains %.1f%% of cGPA variation in the selected responses (overall p-value %s). %s", 100 * m$summary$r.squared, p_text(m$p),
         if (all(rows$p >= .05)) "None of the included predictors has a p-value below 0.05. The data provide insufficient evidence for these adjusted associations." else
           "At least one predictor has a p-value below 0.05 in this exploratory selection. Interpret its size and confidence interval together with the model assumptions.")),
@@ -506,7 +619,13 @@ server <- function(input, output, session) {
       residuals = c("Linearity", "A roughly flat smooth line near zero supports a linear mean relationship. A curved pattern suggests that a straight-line model may miss structure."),
       spread = c("Constant residual variance", "The smooth line should be roughly horizontal and the vertical spread should be similar across fitted values. A trend in spread raises concern about unequal residual variance."),
       qq = c("Residual normality", "Points close to the reference line support approximately normal residuals. Systematic tail departures suggest caution with the model's conventional confidence intervals and p-values."))
-    reading_box(explanation[1], tags$p(explanation[2]),
+    m <- model_result()
+    finding <- if (isTRUE(m$available)) diagnostic_finding(m$fit, diagnostic) else NULL
+    reading_box(explanation[1],
+      if (!is.null(finding)) plain_lead(finding$plain),
+      if (!is.null(finding)) detail_label("How to read this plot"),
+      tags$p(explanation[2]),
+      if (!is.null(finding)) tags$p(class = "stat-line", finding$detail),
       tags$p(class = "control-note", "Diagnostics refresh with the selected model and filters. Small selections can produce unstable smooth curves."))
   })
 }

@@ -406,6 +406,45 @@ summary:focus-visible {
 .stat-line { color: var(--muted); font-size: .875rem; font-variant-numeric: tabular-nums; }
 .plot-note { margin-block: .6rem .85rem; }
 
+/* Plain-language summaries lead each interpretation; technical detail sits below. */
+.reading-box .plain-lead {
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--bs-body-color, #18382E);
+  margin-bottom: .75rem;
+}
+.plain-tag {
+  display: inline-block;
+  margin-inline-end: .5rem;
+  padding: .05rem .5rem;
+  border-radius: 999px;
+  background: #18382E;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  vertical-align: .12em;
+}
+.detail-label {
+  margin: .25rem 0 .35rem !important;
+  padding-top: .55rem;
+  border-top: 1px dashed #e2c7b8;
+  color: var(--muted);
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.plot-note.plain-note { color: inherit; font-size: .95rem; }
+.about-block .plain-lead {
+  font-size: 1.02rem;
+  padding: .6rem .8rem;
+  background: #fcf4ee;
+  border-inline-start: .22rem solid var(--clay);
+  border-radius: .25rem .5rem .5rem .25rem;
+}
+
 #model_metrics .metrics-grid {
   background: var(--sage);
   border: 1px solid var(--line);
