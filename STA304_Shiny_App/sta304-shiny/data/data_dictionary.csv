@@ -1,0 +1,11 @@
+variable,label,unit,definition
+response_id,Response number,identifier,Sequential number assigned after exclusions; original survey aliases omitted
+status,Student registration status,category,Domestic or International
+satisfaction,Satisfaction with cGPA,1-10,1 is worst and 10 is best
+cgpa,Self-reported cumulative GPA,0-4,Used as supplied without further rounding
+study_hours,Average daily study time,hours/day,Self-reported daily average
+short_video_hours,Short-form video use,hours/day,Self-reported use of short-form video platforms
+text_hours,Text-based platform use,hours/day,Self-reported reading or participation in text-based social media
+communication_hours,Calls and messaging,hours/day,Self-reported communication including phone and messaging apps
+cooldown_minutes,Time off social media before bed,minutes,Minutes between stopping social media use and sleeping
+total_social_hours,Total reported social media use,hours/day,Derived in R as short_video_hours + text_hours + communication_hours; categories may overlap
